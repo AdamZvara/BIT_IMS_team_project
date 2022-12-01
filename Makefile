@@ -15,6 +15,10 @@ FILES=*.cpp *.hpp Makefile manual.pdf README.md
 
 all: $(exec)
 
+run: $(exec)
+	./ims_project
+	cat ./simulation.out
+
 pdf:
 	pdflatex $(NAME)
 	pdflatex $(NAME)
