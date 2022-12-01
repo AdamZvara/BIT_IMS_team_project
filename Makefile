@@ -8,7 +8,7 @@ CXX=g++
 CXXFLAGS=--std=c++11 -g -Wall -Wextra
 LDLIBS=-lsimlib
 exec=ims_project
-login=xmatus36
+login=xmatus37
 NAME=manual
 SHELL=/usr/bin/env bash
 FILES=*.cpp *.hpp Makefile manual.pdf README.md
