@@ -7,41 +7,41 @@
 
 #include "simlib.h"
 
-#define SMALL_CAPACITY 7000
-#define LARGE_CAPACITY 100000
-#define TRAVEL_TIME    12*60
+#define SMALL_CAPACITY 50000     // panamax ship tonnage capacity
+#define LARGE_CAPACITY 14000    // neopanamax ship TEU capacity
+#define TRAVEL_TIME    11*60
+#define TIME_IN_LOCK   90
 
+int pacificShips;
+int atlanticShips;
 int shipCounter;
 
 Store AtlanticLocks("Atlantic Locks", 2);
 Store PacificLocks("Pacific Locks", 2);
 
-Histogram Table("Transit time", 700, 30, 20);
-// TStat TimeStat("Time statistic");
+Histogram Table("Transit time", 8, 1, 18);
 
-void shipBehavior(Process *s, bool fromAtlantic) {
+/** Function simulating passage of single ship through one panama lock */
+void lockPassage(Process *p, Store &lock) {
+    p->Enter(lock, 1);
+    p->Wait(TIME_IN_LOCK);
+    p->Leave(lock, 1);
+}
+
+/** Function simulating passage of single ship through whole panama canal */
+void shipPassage(Process *ship, bool fromAtlantic) {
     if (fromAtlantic) {
-        // ship is from atlantic ocean, start with atlantic lock
-        s->Enter(AtlanticLocks, 1);
-        s->Wait(Exponential(45));
-        s->Leave(AtlanticLocks, 1);
+        atlanticShips++;
+        lockPassage(ship, AtlanticLocks); // ship is from atlantic ocean, start with atlantic lock
     } else {
-        // ship is from pacific ocean, start with atlantic lock
-        s->Enter(PacificLocks, 1);
-        s->Wait(Exponential(45));
-        s->Leave(PacificLocks, 1);
+        pacificShips++;
+        lockPassage(ship, PacificLocks); // ship is from pacific ocean, start with pacific lock
     }
-    s->Wait(TRAVEL_TIME);
+    ship->Wait(TRAVEL_TIME); // traveling through main part of canal
     if (fromAtlantic) {
-        // ship is from pacific ocean, end with atlantic lock
-        s->Enter(PacificLocks, 1);
-        s->Wait(Exponential(45));
-        s->Leave(PacificLocks, 1);
+        lockPassage(ship, PacificLocks); // ship is from pacific ocean, end with atlantic lock
     } else {
-        // ship is from atlantic ocean, end with atlantic lock
-        s->Enter(AtlanticLocks, 1);
-        s->Wait(Exponential(45));
-        s->Leave(AtlanticLocks, 1);
+        lockPassage(ship, AtlanticLocks); // ship is from atlantic ocean, end with atlantic lock
     }
 }
 
@@ -49,19 +49,17 @@ class SmallShip: public Process {
     int capacity;
     double arrivalTime;
     bool fromAtlantic;
+
     void Behavior() {
         arrivalTime = Time;
-        shipBehavior(this, fromAtlantic);
-        Table(Time-arrivalTime);
+        shipPassage(this, fromAtlantic);
+        Table((Time-arrivalTime)/60); // total time in canal (in hours)
     }
 public:
-    SmallShip(int c, bool fa) {
-        capacity = c;
-        fromAtlantic = fa;
+    SmallShip(int c, bool fa) : capacity(c), fromAtlantic(fa) {
         Activate();
     }
 };
-
 
 class LargeShip: public Process {
     int capacity;
@@ -69,7 +67,7 @@ class LargeShip: public Process {
     bool fromAtlantic;
     void Behavior() {
         arrivalTime = Time;
-        shipBehavior(this, fromAtlantic);
+        shipPassage(this, fromAtlantic);
         Table(Time-arrivalTime);
     }
 public:
@@ -80,45 +78,57 @@ public:
     }
 };
 
-class SmallShipGenerator: public Event {
+class PanamaxShipGenerator: public Event {
     void Behavior() {
-        // todo: different capacities for small boats
-        new LargeShip(SMALL_CAPACITY, Random() < 0.5);
+        // each ship is randomly generated at pacific or atlantic side
+        new SmallShip(SMALL_CAPACITY, Random() < 0.5);
         shipCounter++;
-        Activate(Time+Exponential(40)); // Every hour new small ship arrives
+        Activate(Time+Normal(50, 3)); // Every hour new small ship arrives
     }
 public:
-    SmallShipGenerator() {
+    PanamaxShipGenerator() {
         Activate();
     }
 };
 
-class LargeShipGenerator: public Event {
+class NeoPanamaxShipGenerator: public Event {
     void Behavior() {
-        // todo: different capacities for small boats
+        // each ship is randomly generated at pacific or atlantic side
         new LargeShip(LARGE_CAPACITY, Random() < 0.5);
         shipCounter++;
         Activate(Time+Exponential(40)); // Every hour new small ship arrives
     }
 public:
-    LargeShipGenerator() {
+    NeoPanamaxShipGenerator() {
         Activate();
     }
 };
 
+void printShipInfo() {
+    Print("------------------------------\n", shipCounter);
+    Print("Pacific side ships:\t%d\n", pacificShips);
+    Print("Atlanitic side ships:\t%d\n", atlanticShips);
+    Print("Overall ships:\t\t%d\n", shipCounter/31);
+    Print("------------------------------\n", shipCounter);
+}
+
 int main() {
     SetOutput("simulation.out");
     Print("Starting panama simulation\n");
+
     // initialize simulation
-    Init(0, 60*24*31); // Simulation time in minutes per day?
+    Init(0, 60*24*365); // Simulation time in minutes for one month
+
     // create generators
-    new LargeShipGenerator();
-    new SmallShipGenerator();
+    // new NeoPanamaxShipGenerator();
+    new PanamaxShipGenerator();
+
     // run simulation
     Run();
+
+    // print information
     AtlanticLocks.Output();
     PacificLocks.Output();
     Table.Output();
-    SIMLIB_statistics.Output();
-    Print(shipCounter/31);
+    printShipInfo();
 }
