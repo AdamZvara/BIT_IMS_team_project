@@ -35,6 +35,7 @@ $(exec): ims_project.o
 clean:
 	rm -f *.o $(exec)
 	rm -f $(NAME).{aux,out,dvi,ps,log,te~,bcf,xml}
+	rm -f simulation.out
 
 tar:
 	tar -cf $(login).tar $(FILES)
