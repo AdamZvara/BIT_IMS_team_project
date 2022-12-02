@@ -35,7 +35,7 @@ Store CanalCapacity("Overall Capacity", CANAL_CAPACITY);
 Queue AtlanticQueue("Atlantic Queue");
 Queue PacificQueue("Pacific Queue");
 
-Histogram Table("Transit time", 8, 1, 30);
+Histogram Table("Transit time", 11, 1, 20);
 
 /** Ship class containing information about each ship */
 class Ship: public Process {
@@ -101,7 +101,7 @@ int shipEnter(Ship *ship, Queue &q, Store &s, int &ship_counter, char *queue_nam
 }
 
 /** Simulate ship exiting canal */
-void shipExit(Ship *ship, Queue &q, Store &s) {
+void shipExit(Ship *ship, Store &s) {
     lockPassage(ship, s); // Ship passage of exit lock
     unlockCanal(ship); // Unlock canal capacity
 
@@ -135,16 +135,16 @@ void shipPassage(Ship *ship, bool fromAtlantic) {
     ship->Wait(TRAVEL_TIME); // Traveling through main part of canal
 
     if (fromAtlantic) {
-        shipExit(ship, AtlanticQueue, PacificLocks);
+        shipExit(ship, PacificLocks);
     } else {
-        shipExit(ship, PacificQueue, AtlanticLocks);
+        shipExit(ship, AtlanticLocks);
     }
 }
 
 class PanamaxShip: public Ship {
     void Behavior() {
         shipPassage(this, fromAtlantic);
-        Table((Time-arrivalTime)/60); // total time in canal (in hours)
+        Table((Time-arrivalTime)/60); // Total time in canal (in hours)
     }
 public:
     PanamaxShip(int c, bool fa) {
@@ -156,7 +156,7 @@ public:
 
 class PanamaxShipGenerator: public Event {
     void Behavior() {
-        // each ship is randomly generated at pacific or atlantic side
+        // Each ship is randomly generated at pacific or atlantic side
         new PanamaxShip(SMALL_CAPACITY, Random() < 0.5);
         Activate(Time+60);
     }
@@ -178,11 +178,11 @@ void printShipInfo() {
 int main() {
     SetOutput("simulation.out");
     Print("Starting panama simulation\n");
-    RandomSeed(time(NULL)); // randomize results
+    RandomSeed(time(NULL)); // Randomize results
 
     // Change i for multiple simulations (e.g year simulation)
     for(int i=1; i<=SIMMONTHS; i++)  {
-        // initialize simulation
+        // Initialize simulation
         Init(0, 60*24*SIMDAYS);
 
         AtlanticLocks.Clear();
@@ -190,13 +190,13 @@ int main() {
         CanalCapacity.Clear();
         Table.Clear();
 
-        // create generators
+        // Create generators
         new PanamaxShipGenerator();
 
-        // run simulation
+        // Run simulation
         Run();
 
-        // print information
+        // Print information
         AtlanticLocks.Output();
         PacificLocks.Output();
         CanalCapacity.Output();
