@@ -8,6 +8,7 @@
 #include <ctime>
 #include <unistd.h>
 #include <string>
+#include <cstring>
 #include "simlib.h"
 
 #define DEBUG 0
@@ -15,10 +16,13 @@
 
 /** Simulation parameters */
 #define TRAVEL_TIME    Normal(10*60, 60)    // Canal main passage time in minutes
-#define TIME_IN_LOCK   105      // Single lock passage time in minutes
-#define SIMDAYS        31       // Simulation days
-#define CANAL_CAPACITY 20       // Maximum ships in canal at single time
-#define SMALL_CAPACITY 28700    // Panamax ship cargo tonnage
+int TIME_IN_LOCK   = 105;      // Single lock passage time in minutes
+int SIMDAYS        = 31;       // Simulation days
+int CANAL_CAPACITY = 20;       // Maximum ships in canal at single time
+int SMALL_CAPACITY = 28700;    // Panamax ship cargo tonnage
+int ACCIDENT_HRS   = 20;       // Duration of accident in hours
+int ACCIDENT_CNT   = 10;       // Number of accidents in simulation
+
 
 /** Global variables */
 int pacificShips;
@@ -28,8 +32,11 @@ int overallTEU;
 bool priorityExit = false;
 bool emptyQueues = false;
 
-Store AtlanticLocks("Atlantic Locks", 2);
-Store PacificLocks("Pacific Locks", 2);
+Facility AtlanticLock1("Atlantic Lock 1");  // primary exit lock
+Facility AtlanticLock2("Atlantic Lock 2");  // primary entry lock
+Facility PacificLock1("Pacific Lock 1");    // primary exit lock
+Facility PacificLock2("Pacific Lock 2");    // primary entry lock
+
 Store CanalCapacity("Overall Capacity", CANAL_CAPACITY);
 
 Histogram Table("Transit time", 11, 1, 10);
@@ -40,33 +47,101 @@ public:
     int capacity;
     double arrivalTime;
     bool fromAtlantic;
+    bool interrupted = false;
 };
-
-/** Simulate passage of single ship through panama lock */
-void lockPassage(Process *p, Store &lock) {
-    p->Enter(lock, 1);
-    p->Wait(TIME_IN_LOCK);
-    p->Leave(lock, 1);
-}
 
 /** Locking and unlocking canal capacity */
 void lockCanal(Process *p) {p->Enter(CanalCapacity, 1);}
 void unlockCanal(Process *p) {p->Leave(CanalCapacity, 1);}
 
+/** Simulate ship picking entry lock
+ *  Ships can use both locks, if they are availiable, otherwise they wait primarily
+ *  in either AtlanticLock2 for atlantic side or PacificLock2 for pacific side
+*/
+void entryLocks(Ship *s, Facility **lock) {
+    if (s->fromAtlantic) {
+        if (!AtlanticLock1.Busy()) {
+            s->Seize(AtlanticLock1);
+            *lock = AtlanticLock1;
+            dprint("Ship from atlantic entering alock1\n");
+        } else {
+            s->Seize(AtlanticLock2);
+            *lock = AtlanticLock2;
+            dprint("Ship from atlantic entering alock2\n");
+        }
+    } else {
+        if (!PacificLock1.Busy()) {
+            s->Seize(PacificLock1);
+            *lock = PacificLock1;
+            dprint("Ship from atlantic entering plock1\n");
+        } else {
+            s->Seize(PacificLock2);
+            *lock = PacificLock2;
+            dprint("Ship from atlantic entering plock2\n");
+        }
+    }
+}
+
+/** Simulate ship picking exit lock
+ *  Ships can use both locks, if they are availiable, otherwise they wait primarily
+ *  in either AtlanticLock1 for pacific side or PacificLock2 for atlantic side
+*/
+void exitLocks(Ship *s, Facility **lock) {
+    if (s->fromAtlantic) {
+        if (!PacificLock2.Busy()) {
+            s->Seize(PacificLock2);
+            *lock = PacificLock2;
+            dprint("Ship from atlantic leaving plock1\n");
+        } else {
+            s->Seize(PacificLock1);
+            *lock = PacificLock1;
+            dprint("Ship from atlantic leaving plock2\n");
+        }
+    } else {
+        if (!AtlanticLock2.Busy()) {
+            s->Seize(AtlanticLock2);
+            *lock = AtlanticLock2;
+            dprint("Ship from atlantic leaving alock1\n");
+        } else {
+            s->Seize(AtlanticLock1);
+            *lock = AtlanticLock1;
+            dprint("Ship from atlantic leaving alock2\n");
+        }
+    }
+}
+
+/** Simulate passage of single ship through panama lock (can be entry or exit lock) */
+void lockPassage(Ship *s, bool exiting) {
+    Facility *lock;
+    if (!exiting) {
+        entryLocks(s, &lock);
+    } else {
+        exitLocks(s, &lock);
+    }
+    s->Wait(TIME_IN_LOCK);
+    if (s->interrupted) {
+        // Ship has been interrupted by accident inside lock
+        // Just leave the system (e.g ship is damaged and is tugged away ...)
+        dprint("Ship has been interrupted\n");
+        unlockCanal(s);
+        s->Cancel();
+    }
+    s->Release(*lock);
+}
+
 /** Simulate ship entering panama canal */
-int shipEnter(Ship *ship, Store &s, int &ship_counter) {
-    // CanalCapacity is okay, continue with simulation
+void shipEnter(Ship *ship) {
+    lockPassage(ship, false); // Ship passage of entry lock
     lockCanal(ship); // Add new ship to canals current capacity
     dprint("New in canal: %d\n", CanalCapacity.Used());
-    lockPassage(ship, s); // Ship passage of entry lock
-    ship_counter++;
-    return 0;
 }
 
 /** Simulate ship exiting canal */
-void shipExit(Ship *ship, Store &s) {
-    lockPassage(ship, s); // Ship passage of exit lock
-    unlockCanal(ship); // Unlock canal capacity
+void shipExit(Ship *ship) {
+    lockPassage(ship, true); // Ship passage of exit lock
+    if (CanalCapacity.Used()) {
+        unlockCanal(ship); // Unlock canal capacity
+    }
 
     dprint("Leaving canal: %d\n", CanalCapacity.Used());
     overallTEU += ship->capacity;
@@ -74,25 +149,14 @@ void shipExit(Ship *ship, Store &s) {
 
 /** Function simulating passage of single ship through whole panama canal */
 void shipPassage(Ship *ship, bool fromAtlantic) {
-    if (fromAtlantic) {
-        if (shipEnter(ship, AtlanticLocks, atlanticShips) < 0) {
-            return;
-        }
-    } else {
-        if (shipEnter(ship, PacificLocks, pacificShips) < 0) {
-            return;
-        }
-    }
+    shipEnter(ship);
 
     ship->arrivalTime = Time - TIME_IN_LOCK; // Set arrival time after ship actually went into entry lock
     shipCounter++;
     ship->Wait(TRAVEL_TIME); // Traveling through main part of canal
 
-    if (fromAtlantic) {
-        shipExit(ship, PacificLocks);
-    } else {
-        shipExit(ship, AtlanticLocks);
-    }
+    (fromAtlantic ? atlanticShips : pacificShips) += 1;
+    shipExit(ship);
 }
 
 class PanamaxShip: public Ship {
@@ -108,17 +172,6 @@ public:
     }
 };
 
-class Failure: public Process {
-    void Behavior() {
-        Table((Time-arrivalTime)/60); // Total time in canal (in hours)
-    }
-public:
-    Failure() {
-        Activate();
-    }
-};
-
-
 class PanamaxShipGenerator: public Event {
     void Behavior() {
         // Each ship is randomly generated at pacific or atlantic side
@@ -131,28 +184,46 @@ public:
     }
 };
 
-class LockFailure: public Process {
+class RepairLock: public Process {
+    Facility &lock;
+    bool exit;
     void Behavior() {
-
-    }
-};
-
-class LockBlockage: public Event {
-    void Behavior() {
-        // Generate blockage of canal lock
-        new LockFailure();
-        Activate(Time+55); // Each hour new panamax ship arrives
+        dprint("Incident occured, repair in progress\n");
+        Ship *s = (Ship *)lock.In();
+        Seize(lock, 1);
+        if (s != nullptr) {
+            // Set interrupted flag to ship and activate it
+            s->interrupted = true;
+            s->Activate();
+        }
+        Wait(60*ACCIDENT_HRS);
+        Release(lock);
     }
 public:
-    LockBlockage() {
+    RepairLock(Facility &lock, bool exit): lock(lock), exit(exit) {
         Activate();
     }
 };
 
+class LockAccicentGenerator: public Event {
+    Facility &lock;
+    bool isExitLock;
+    void Behavior() {
+        // Generate blockage of canal lock
+        new RepairLock(lock, isExitLock);
+        Activate(Time+(SIMDAYS/ACCIDENT_CNT)*60*24);
+    }
+public:
+    LockAccicentGenerator(Facility &blockedLock, bool exitLock): lock(blockedLock), isExitLock(exitLock) {
+        Activate(Time+(SIMDAYS/ACCIDENT_CNT)*60*24); // Generate single canal blockage
+    }
+};
 
 void printStat() {
-    AtlanticLocks.Output();
-    PacificLocks.Output();
+    AtlanticLock1.Output();
+    AtlanticLock2.Output();
+    PacificLock1.Output();
+    PacificLock2.Output();
     CanalCapacity.Output();
     Table.Output();
     Print("------------------------------------------------\n");
@@ -171,6 +242,34 @@ void validate_model() {
     Init(0, 60*24*SIMDAYS);
     // Create generators
     new PanamaxShipGenerator();
+    // Run simulation
+    Run();
+    // Print statistics
+    printStat();
+}
+
+void experiment1() {
+    SetOutput("simulation.out");
+    Print("Experiment 1 - Accident in exit canal\n");
+    // Initialize simulation
+    Init(0, 60*24*SIMDAYS);
+    // Create generators
+    new PanamaxShipGenerator();
+    new LockAccicentGenerator(AtlanticLock1, false);
+    // Run simulation
+    Run();
+    // Print statistics
+    printStat();
+}
+
+void experiment2() {
+    SetOutput("simulation.out");
+    Print("Experiment 2 - Accident in entry canal\n");
+    // Initialize simulation
+    Init(0, 60*24*SIMDAYS);
+    // Create generators
+    new PanamaxShipGenerator();
+    new LockAccicentGenerator(AtlanticLock2, false);
     // Run simulation
     Run();
     // Print statistics
@@ -200,6 +299,14 @@ int main(int argc, char *argv[]) {
 
         case 'v':
             validate_model();
+            break;
+
+        case 'e':
+            if (!strcmp(optarg, "1")) {
+                experiment1();
+            } else if (!strcmp(optarg, "2")) {
+                experiment2();
+            }
             break;
 
         default:
