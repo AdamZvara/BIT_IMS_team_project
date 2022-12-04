@@ -7,7 +7,7 @@
 CXX=g++
 CXXFLAGS=--std=c++11 -g -Wall -Wextra
 LDLIBS=-lsimlib
-exec=ims_project
+exec=panama
 login=xmatus37
 NAME=manual
 SHELL=/usr/bin/env bash
@@ -16,7 +16,7 @@ FILES=*.cpp *.hpp Makefile manual.pdf README.md
 all: $(exec)
 
 run: $(exec)
-	./ims_project
+	./panama -v
 	cat ./simulation.out
 
 pdf:
