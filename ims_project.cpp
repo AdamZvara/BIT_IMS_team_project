@@ -211,7 +211,6 @@ class LockAccicentGenerator: public Event {
     void Behavior() {
         // Generate blockage of canal lock
         new RepairLock(lock, isExitLock);
-        // Activate(Time+(SIMDAYS/ACCIDENT_CNT)*60*24);
     }
 public:
     LockAccicentGenerator(Facility &blockedLock, bool exitLock): lock(blockedLock), isExitLock(exitLock) {
@@ -250,12 +249,12 @@ void validate_model() {
 
 void experiment1() {
     SetOutput("simulation.out");
-    Print("Experiment 1 - Accident in exit canal\n");
+    Print("Experiment 1 - Accident in entry canal\n");
     // Initialize simulation
     Init(0, 60*24*SIMDAYS);
     // Create generators
     new PanamaxShipGenerator();
-    new LockAccicentGenerator(AtlanticLock1, false);
+    new LockAccicentGenerator(AtlanticLock2, false);
     // Run simulation
     Run();
     // Print statistics
@@ -264,7 +263,7 @@ void experiment1() {
 
 void experiment2() {
     SetOutput("simulation.out");
-    Print("Experiment 2 - Accident in entry canal\n");
+    Print("Experiment 2 - Accident in both canal\n");
     // Initialize simulation
     Init(0, 60*24*SIMDAYS);
     // Create generators
