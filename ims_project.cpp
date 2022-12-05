@@ -131,8 +131,8 @@ void lockPassage(Ship *s, bool exiting) {
 
 /** Simulate ship entering panama canal */
 void shipEnter(Ship *ship) {
-    lockPassage(ship, false); // Ship passage of entry lock
     lockCanal(ship); // Add new ship to canals current capacity
+    lockPassage(ship, false); // Ship passage of entry lock
     dprint("New in canal: %d\n", CanalCapacity.Used());
 }
 
@@ -270,6 +270,7 @@ void experiment2() {
     // Create generators
     new PanamaxShipGenerator();
     new LockAccicentGenerator(AtlanticLock2, false);
+    new LockAccicentGenerator(AtlanticLock1, false);
     // Run simulation
     Run();
     // Print statistics
