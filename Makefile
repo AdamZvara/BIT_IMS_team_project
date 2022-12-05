@@ -19,6 +19,14 @@ run: $(exec)
 	./panama -v
 	cat ./simulation.out
 
+1: $(exec)
+	./panama -e 1
+	cat ./simulation.out
+
+2: $(exec)
+	./panama -e 2
+	cat ./simulation.out
+
 pdf:
 	pdflatex $(NAME)
 	pdflatex $(NAME)
